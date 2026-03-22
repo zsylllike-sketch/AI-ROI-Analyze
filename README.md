@@ -9,14 +9,16 @@ An end-to-end data pipeline and deployment system that analyses automation risk 
 ```
 Canvas Data Pipeline (Zerve Blocks)
 ────────────────────────────────────────────
-Block1 → Block2 → Block3 → Block4 → Run test_api.py
-                        ↓
-              Deployment Scripts
-         ┌──────────────────────────────┐
-         │  FastAPI (backend API)       │  FastAPI  · risk-api.hub.zerve.cloud
-         │  Streamlit (interactive UI)  │  Streamlit · risk-api-streamlit.hub.zerve.cloud
-         │  Streamlit (direct canvas)   │  Streamlit · ai-roi.hub.zerve.cloud
-         └──────────────────────────────┘
+                                         ┌→ Block4 (static report generator) → Run test_api.py
+Block1 → Block2 → Block3 (analyze) ─────┤
+                                         └→ Smoke Test
+                     ↓
+           Deployment Scripts
+    ┌──────────────────────────────┐
+    │  FastAPI (backend API)       │  FastAPI  · risk-api.hub.zerve.cloud
+    │  Streamlit (interactive UI)  │  Streamlit · risk-api-streamlit.hub.zerve.cloud
+    │  Streamlit (direct canvas)   │  Streamlit · ai-roi.hub.zerve.cloud
+    └──────────────────────────────┘
 ```
 
 ---
@@ -31,8 +33,9 @@ All three deployment scripts depend on variables produced by the canvas notebook
 | Block1 | `Block1 -- load raw data` | Loads O*NET occupations, task statements, and StatCan wage CSV. Extracts latest Canadian average hourly wages. Produces: `occupations`, `tasks`, `statcan`, `wages` |
 | Block2 | `Block2 -- clean / normalize` | Normalises and renames all three DataFrames. Drops survey metadata columns. Produces: `clean_occupations`, `clean_tasks`, `clean_wages` |
 | Block3 | `Block3 -- analyze(job_title)` | Defines all scoring and matching logic. Pre-computes occupation title list. Produces: `clean_occupations`, `clean_tasks`, `clean_wages`, `occupation_titles`, `score_task`, `risk_level`, `find_occupation`, `find_wage`, `analyze` |
-| Block4 | `Block4 -- static report generator` | End-to-end smoke test using "Marketing Manager". Generates and saves `automation_risk_report.png`. |
-| Test | `Run test_api.py` | Runs `Test/test_api.py` in-process against canvas data. Verifies all API logic passes without a live server. |
+| Block4 | `Block4 -- static report generator` | Generates and saves `automation_risk_report.png` using "Marketing Manager" as the sample input. Branches from Block3. |
+| Smoke Test | `Smoke Test` | End-to-end smoke test of the full analyze pipeline. Branches from Block3 in parallel with Block4. |
+| Test | `Run test_api.py` | Runs `Test/test_api.py` in-process against canvas data. Verifies all API logic passes without a live server. Runs after Block4. |
 
 ### ⚠️ Critical: Run pipeline before deploying
 
@@ -47,7 +50,8 @@ error that surfaces as a **503 Service Unavailable**.
 1. Run Block1  →  success ✅
 2. Run Block2  →  success ✅
 3. Run Block3  →  success ✅   ← backend API and interactive frontend depend on this block
-4. Deploy / restart the API and Streamlit scripts
+4. (optional) Run Block4 / Smoke Test  →  success ✅
+5. Deploy / restart the API and Streamlit scripts
 ```
 
 ---
