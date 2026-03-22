@@ -9,14 +9,14 @@ An end-to-end data pipeline and deployment system that analyses automation risk 
 ```
 Canvas Data Pipeline (Zerve Blocks)
 ────────────────────────────────────────────
-Block1 → Block 2 → Block3 → Block4 (Smoke Test) → Run test_api.py
+Block1 → Block2 → Block3 → Block4 → Run test_api.py
                         ↓
               Deployment Scripts
-         ┌─────────────────────────┐
-         │  Automation Risk API    │  FastAPI  · risk-api.hub.zerve.cloud
-         │  Streamlit App (API)    │  Streamlit · risk-api-streamlit.hub.zerve.cloud
-         │  Streamlit App (direct) │  Streamlit · ai-roi.hub.zerve.cloud
-         └─────────────────────────┘
+         ┌──────────────────────────────┐
+         │  FastAPI (backend API)       │  FastAPI  · risk-api.hub.zerve.cloud
+         │  Streamlit (interactive UI)  │  Streamlit · risk-api-streamlit.hub.zerve.cloud
+         │  Streamlit (direct canvas)   │  Streamlit · ai-roi.hub.zerve.cloud
+         └──────────────────────────────┘
 ```
 
 ---
@@ -28,16 +28,16 @@ All three deployment scripts depend on variables produced by the canvas notebook
 
 | Block | Name | Purpose |
 |-------|------|---------|
-| Block1 | `Block1 -- load data and profilling` | Loads O*NET occupations, task statements, and StatCan wage CSV. Extracts latest Canadian average hourly wages. Produces: `occupations`, `tasks`, `statcan`, `wages` |
-| Block2 | `Block 2 -- clean data and optimize` | Normalises and renames all three DataFrames. Drops survey metadata columns. Produces: `clean_occupations`, `clean_tasks`, `clean_wages` |
-| Block3 | `Block3 -- Scoring Functions` | Defines all scoring and matching logic. Pre-computes occupation title list. Produces: `clean_occupations`, `clean_tasks`, `clean_wages`, `occupation_titles`, `score_task`, `risk_level`, `find_occupation`, `find_wage`, `analyze` |
-| Block4 | `Block4 --SmokeTest` | End-to-end smoke test using "Marketing Manager". Generates and saves `automation_risk_report.png`. |
+| Block1 | `Block1 -- load raw data` | Loads O*NET occupations, task statements, and StatCan wage CSV. Extracts latest Canadian average hourly wages. Produces: `occupations`, `tasks`, `statcan`, `wages` |
+| Block2 | `Block2 -- clean / normalize` | Normalises and renames all three DataFrames. Drops survey metadata columns. Produces: `clean_occupations`, `clean_tasks`, `clean_wages` |
+| Block3 | `Block3 -- analyze(job_title)` | Defines all scoring and matching logic. Pre-computes occupation title list. Produces: `clean_occupations`, `clean_tasks`, `clean_wages`, `occupation_titles`, `score_task`, `risk_level`, `find_occupation`, `find_wage`, `analyze` |
+| Block4 | `Block4 -- static report generator` | End-to-end smoke test using "Marketing Manager". Generates and saves `automation_risk_report.png`. |
 | Test | `Run test_api.py` | Runs `Test/test_api.py` in-process against canvas data. Verifies all API logic passes without a live server. |
 
 ### ⚠️ Critical: Run pipeline before deploying
 
 Both the FastAPI script and one variant of the Streamlit app load canvas variables via
-`from zerve import variable`. If `Block3 -- Scoring Functions` has not been run to a
+`from zerve import variable`. If `Block3 -- analyze(job_title)` has not been run to a
 **success** state, the deployment container will fail at startup with a data loading
 error that surfaces as a **503 Service Unavailable**.
 
@@ -46,7 +46,7 @@ error that surfaces as a **503 Service Unavailable**.
 ```
 1. Run Block1  →  success ✅
 2. Run Block2  →  success ✅
-3. Run Block3  →  success ✅   ← API and direct-Streamlit scripts depend on this block
+3. Run Block3  →  success ✅   ← backend API and interactive frontend depend on this block
 4. Deploy / restart the API and Streamlit scripts
 ```
 
@@ -54,7 +54,7 @@ error that surfaces as a **503 Service Unavailable**.
 
 ## Deployment Scripts
 
-### 1. Automation Risk API
+### 1. Backend API (FastAPI)
 
 | Property | Value |
 |----------|-------|
@@ -82,10 +82,10 @@ event. This is the pattern that resolved 503 errors on cold starts:
 from zerve import variable
 
 # Loaded once when uvicorn imports app/main.py
-_clean_occupations = variable("Block3 -- Scoring Functions", "clean_occupations")
-_clean_tasks       = variable("Block3 -- Scoring Functions", "clean_tasks")
-_clean_wages       = variable("Block3 -- Scoring Functions", "clean_wages")
-_occupation_titles = variable("Block3 -- Scoring Functions", "occupation_titles")
+_clean_occupations = variable("Block3 -- analyze(job_title)", "clean_occupations")
+_clean_tasks       = variable("Block3 -- analyze(job_title)", "clean_tasks")
+_clean_wages       = variable("Block3 -- analyze(job_title)", "clean_wages")
+_occupation_titles = variable("Block3 -- analyze(job_title)", "occupation_titles")
 _data_loaded = True
 ```
 
@@ -95,7 +95,7 @@ exception.
 
 ---
 
-### 2. Streamlit App — API-backed (`risk-api-streamlit`)
+### 2. Interactive Frontend (Streamlit — API-backed, `risk-api-streamlit`)
 
 | Property | Value |
 |----------|-------|
@@ -152,7 +152,7 @@ installation required.
 
 ---
 
-### 3. Streamlit App — direct canvas (`ai-roi`)
+### 3. Interactive Frontend (Streamlit — direct canvas, `ai-roi`)
 
 | Property | Value |
 |----------|-------|
@@ -171,10 +171,10 @@ from zerve import variable
 
 @st.cache_resource(show_spinner="Loading occupation data…")
 def _load_data():
-    _occ    = variable("Block3 -- Scoring Functions", "clean_occupations")
-    _tasks  = variable("Block3 -- Scoring Functions", "clean_tasks")
-    _wages  = variable("Block3 -- Scoring Functions", "clean_wages")
-    _titles = variable("Block3 -- Scoring Functions", "occupation_titles")
+    _occ    = variable("Block3 -- analyze(job_title)", "clean_occupations")
+    _tasks  = variable("Block3 -- analyze(job_title)", "clean_tasks")
+    _wages  = variable("Block3 -- analyze(job_title)", "clean_wages")
+    _titles = variable("Block3 -- analyze(job_title)", "occupation_titles")
     return _occ, _tasks, _wages, _titles
 
 clean_occupations, clean_tasks, clean_wages, occupation_titles = _load_data()
@@ -190,7 +190,7 @@ server lifecycle, eliminating repeated cold-start data fetches.
 ### 503 Service Unavailable on API startup
 
 **Root cause:** The canvas pipeline (Block1 → Block2 → Block3) had not been run
-to success before the API script was deployed, so `variable(...)` calls at import
+to success before the backend API was deployed, so `variable(...)` calls at import
 time found no serialised data to load.
 
 **Fix applied:**
@@ -210,9 +210,9 @@ time found no serialised data to load.
 
 ### Streamlit app shows "API request failed"
 
-- Check that the **FastAPI** script (`Automation Risk API`) is deployed and healthy:
+- Check that the **backend API** (`Automation Risk API`) is deployed and healthy:
   `GET https://risk-api.hub.zerve.cloud/health`
-- If the API is healthy but the Streamlit app still fails, verify the `requests` →
+- If the API is healthy but the interactive frontend still fails, verify the `requests` →
   `urllib` fallback is present in `app/main.py`. The urllib fallback is the safe
   default when the `requests` package is not installed in the Streamlit environment.
 
